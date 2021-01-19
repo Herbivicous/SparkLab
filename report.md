@@ -2,7 +2,7 @@
 
 ## Students
 
-I worked alone in this lab. My name is Bastien Exertier.
+Bastien Exertier & Louis Boulanger
 
 ## Analysis
 
