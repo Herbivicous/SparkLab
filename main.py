@@ -269,75 +269,54 @@ MEM, CPU, DISK = 0, 1, 2
 # we join the two tables by JobID
 usage_over_requested = request.join(usage)
 
-mem = usage_over_requested.map(
-	lambda task: (
-		float(task[TASK][REQUEST][MEM]),
-		float(task[TASK][USAGE][MEM])
+NDIVISIONS = 1000
+
+def ressources_ratio(ressources, ress_type):
+	""" select a ressource type from ressources """
+	return ressources.map(
+		lambda task: (
+			float(task[TASK][REQUEST][ress_type]),
+			float(task[TASK][USAGE][ress_type])
+		)
 	)
-)
-
-cpu = usage_over_requested.map(
-	lambda task: (
-		float(task[TASK][REQUEST][CPU]),
-		float(task[TASK][USAGE][CPU])
-	)
-)
-
-disk = usage_over_requested.map(
-	lambda task: (
-		float(task[TASK][REQUEST][DISK]),
-		float(task[TASK][USAGE][DISK])
-	)
-)
-
-
-NDIVISIONS = 50
-
-# print(
-# 	mem.groupBy(
-# 		lambda mem: round(10*float(mem[REQUEST]))
-# 	).map(
-# 		lambda mem: (mem[0], list(mem[1]))
-# 	).collect()
-# )
 
 # We will round the request to merge them in intervals
 
-NDIVISIONS = 1000
+def ressources_intervals(ressources):
+	""" transform a list of usage over request into intervals """
+	return ressources.map(
+		lambda ress: (round(NDIVISIONS*ress[REQUEST]), ress[USAGE])
+	).aggregateByKey(
+		# we now compute the average in each interval
+		# (sum, count)
+		(0, 0),
+		# (sum, count) = (sum + current, count + 1)
+		lambda acc, curr: (acc[0] + curr, acc[1] + 1),
+		# merge (sum, count) = (sum1 + sum2, count1 + count2)
+		lambda a, b: (a[0] + b[0], a[1] + b[1])
+	).map(
+		# we divide the sum by the count to have the average
+		lambda ress: (ress[REQUEST], ress[USAGE][0]/ress[USAGE][1])
+	)
 
-mem_intervals =	mem.map(
-	lambda mem: (round(NDIVISIONS*mem[REQUEST]), mem[USAGE])
-).aggregateByKey(
-	# we now compute the average in each interval
-	# (sum, count)
-	(0, 0),
-	# (sum, count) = (sum + current, count + 1)
-	lambda acc, curr: (acc[0] + curr, acc[1] + 1),
-	# merge (sum, count) = (sum1 + sum2, count1 + count2)
-	lambda a, b: (a[0] + b[0], a[1] + b[1])
-).map(
-	# we divide the sum by the count to have the average
-	lambda mem: (mem[REQUEST], mem[USAGE][0]/mem[USAGE][1])
+def ressources_plot(intervals, ress_name):
+	""" plot a graph of ressource usage over ressource requested """
+	plt.plot(*zip(*intervals.collect()), 'o')
+	# plt.xscale('log')
+	plt.title(f'{ress_name} used as a function of {ress_name} requested')
+	plt.ylabel(f'{ress_name} used')
+	plt.xlabel(f'{ress_name} requested')
+	plt.show()
+
+ressources_plot(
+	ressources_intervals(ressources_ratio(usage_over_requested, MEM)),
+	'Memory'
 )
-
-
-plt.plot(*zip(*mem_intervals.collect()), 'o')
-# plt.xscale('log')
-plt.title('Memory used as a function of Memory requested')
-plt.ylabel('Memory used')
-plt.xlabel('Memory requested')
-plt.show()
-
-# plt.plot(*zip(*cpu.collect()), 'o')
-# # plt.xscale('log')
-# plt.title('CPU used as a function of CPU requested')
-# plt.ylabel('CPU used')
-# plt.xlabel('CPU requested')
-# plt.show()
-
-# plt.plot(*zip(*disk.collect()), 'o')
-# # plt.xscale('log')
-# plt.title('Disk used as a function of Disk requested')
-# plt.ylabel('Disk used')
-# plt.xlabel('Disk requested')
-# plt.show()
+ressources_plot(
+	ressources_intervals(ressources_ratio(usage_over_requested, CPU)),
+	'CPU'
+)
+ressources_plot(
+	ressources_intervals(ressources_ratio(usage_over_requested, DISK)),
+	'Disk'
+)
