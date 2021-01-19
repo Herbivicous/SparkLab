@@ -384,6 +384,105 @@ We can't see an obvious link between the Disk usage and Disk request.
 
 ![disk usage as a function of disk request](figures/disk_request.png)
 
-##### Acknoledgment
+### Is there a relation between the amount of resource consumed by tasks and their priority?
 
-Because we were working on laptops, we had to cut a large portion of the tables. Otherwise, the computations wouldn't progres at all. As a consequence, our finding may not be representative of reality.
+#### Method
+
+The method to have a result is pretty similar to _Are the tasks that request the more resources the one that consume the more resources?_ but instead plotin the usage as a function of the request, we plot it as a function of the priotity.  
+Since we use the priority for the Memory, CPU and Disk, we can do the averages all at once.
+
+#### Code
+
+##### Filtering
+
+We do some filtering on the table (similar to the previous question).
+
+```python
+request = tasks.filter(
+	# We filter to only keep :
+	# - submit and update running events
+	# - priority is non null
+	lambda task: 
+		int(task[EVENTTYPE]) in (SUBMIT, UPDATE_RUNNING) and task[PRORITY]
+).map(
+	# we map the list into (JOBID, (resources requests))
+	lambda task: (
+		(int(task[JOBID]), int(task[TASKINDEX])), int(task[PRORITY])
+	)
+)
+
+usage = usage.map(
+	lambda task: (
+		(int(task[JOBID]), int(task[TASKINDEX])),
+		(task[MAXMEM_USAGE], task[CPU_USAGE], task[DISK_USAGE])
+	)
+)
+```
+
+##### Join
+
+```python
+usage_over_priority = request.join(usage)
+```
+
+##### Aggregation
+
+This time, we compute the intervals and averages of Memory, CPU, and Disk at the same time. Doing such will request only of aggregation instead of three.
+
+```python
+resource_averages = usage_over_priority.map(
+	# Because we don't need the jobID or task index anymore,
+	# We only keep the value of the key-value pair
+	lambda res: res[DATA]
+).aggregateByKey(
+	# Aggregate by priority, (sum(usage), count(usage))
+	((0, 0, 0), 0),
+	# Adding new task usage to the accumulator
+	lambda acc, curr: (
+		(
+			acc[SUM][MEM] + float(curr[MEM]),
+			acc[SUM][CPU] + float(curr[CPU]),
+			acc[SUM][DISK] + float(curr[DISK]),
+		), acc[COUNT] + 1
+	),
+	# Merging two accumulator together
+	lambda a, b: (
+		(
+			a[SUM][MEM] + b[SUM][MEM],
+			a[SUM][CPU] + b[SUM][CPU],
+			a[SUM][DISK] + b[SUM][DISK],
+		), a[COUNT] + b[COUNT]
+	)
+).map(
+	# compute the average sum(usage)/count(usage)
+	lambda res: (
+		res[PRORITY], (
+			res[USAGE][SUM][MEM]/res[USAGE][COUNT],
+			res[USAGE][SUM][CPU]/res[USAGE][COUNT],
+			res[USAGE][SUM][DISK]/res[USAGE][COUNT]
+		)
+	)
+)
+```
+
+#### Results
+
+##### Memory
+
+We can't see an obvious link between the Memory usage and Priority.
+
+![mem usage as a function of priority](figures/mem_priority.png)
+
+
+##### CPU
+
+We can't see an obvious link between the CPU usage and Priority.
+
+![cpu usage as a function of priority](figures/cpu_priority.png)
+
+
+##### Disk
+
+We can't see an obvious link between the Disk usage and Priority.
+
+![disk usage as a function of priority](figures/disk_priority.png)

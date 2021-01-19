@@ -349,8 +349,6 @@ request = tasks.filter(
 )
 
 usage = usage.map(
-	# we map the usage table the same way as we did on the event,
-	# replacing resources requests by resources usages
 	lambda task: (
 		(int(task[JOBID]), int(task[TASKINDEX])),
 		(task[MAXMEM_USAGE], task[CPU_USAGE], task[DISK_USAGE])
@@ -363,10 +361,13 @@ DATA, PRORITY, USAGE, MEM, CPU, DISK = 1, 0, 1, 0, 1, 2
 SUM, COUNT, AVERAGE = 0, 1, 1
 
 resource_averages = usage_over_priority.map(
+	# Because we don't need the jobID or task index anymore,
+	# We only keep the value of the key-value pair
 	lambda res: res[DATA]
 ).aggregateByKey(
 	# Aggregate by priority, (sum(usage), count(usage))
 	((0, 0, 0), 0),
+	# Adding new task usage to the accumulator
 	lambda acc, curr: (
 		(
 			acc[SUM][MEM] + float(curr[MEM]),
@@ -374,6 +375,7 @@ resource_averages = usage_over_priority.map(
 			acc[SUM][DISK] + float(curr[DISK]),
 		), acc[COUNT] + 1
 	),
+	# Merging two accumulator together
 	lambda a, b: (
 		(
 			a[SUM][MEM] + b[SUM][MEM],
