@@ -261,18 +261,18 @@ nb_of_machine_per_job = entries.filter(
 
 #### Method
 
-The **ressource request** is in the **ask-event** table and the **ressource usage** is in the **task-usage** table.
+The **resource request** is in the **ask-event** table and the **resource usage** is in the **task-usage** table.
 Task are linked by their **JobID** and by their **task index**.
 Thus, we will need to join the two table by **(JobID, task index)**.
 * First we filter the data such that we only keep **SUBMIT** and **UPDATE RUNNONG** events.
-* We also only keep events where the ressources request are defined.
+* We also only keep events where the resources request are defined.
 * We transform the two tables so each row is like `(JobID, task index), (mem, cpu, disk)` with `mem`, `cpu`, `disk` being either the request (task events) or the usage (task usage).
 * Then we can join the two table by **(JobID, task index)**.
-* Then for each ressource :
-	* We transform the table into a list of couple **(ress request, ress usage)**.
+* Then for each resource :
+	* We transform the table into a list of couple **(res request, res usage)**.
 	* Because we can't plot all the data (way too big), we need to find a way to reduce the number of points without losing too much information.
-	* Our solution is to group ressource usage in ressource request intervals, and then to plot the average of each interval.
-	* To do that, we change the `ressource request` by `round(NDIVISIONS*ress[REQUEST]`.
+	* Our solution is to group resource usage in resource request intervals, and then to plot the average of each interval.
+	* To do that, we change the `resource request` by `round(NDIVISIONS*res[REQUEST]`.
 	* We then use `aggregateByKey` to compute the average on each interval.
 	* We can finally plot the data.
 
@@ -291,7 +291,7 @@ request = tasks.filter(
 		int(task[EVENTTYPE]) in (SUBMIT, UPDATE_RUNNING) and
 		task[CPU_REQ] and task[MEM_REQ] and task[DISK_REQ]
 ).map(
-	# we map the list into (JOBID, (ressources requests))
+	# we map the list into (JOBID, (resources requests))
 	lambda task: (
 		(int(task[JOBID]), int(task[TASKINDEX])),
 		(task[MEM_REQ], task[CPU_REQ], task[DISK_REQ])
@@ -300,7 +300,7 @@ request = tasks.filter(
 
 usage = usage.map(
 	# we map the usage table the same way as we did on the event,
-	# replacing ressources requests by ressources usages
+	# replacing resources requests by resources usages
 	lambda task: (
 		(int(task[JOBID]), int(task[TASKINDEX])),
 		(task[MAXMEM_USAGE], task[CPU_USAGE], task[DISK_USAGE])
@@ -314,28 +314,28 @@ usage = usage.map(
 usage_over_requested = request.join(usage)
 ```
 
-##### Ressource
+##### resource
 
-Mapping the data to a list of ratio of a specific ressource.
+Mapping the data to a list of ratio of a specific resource.
 
 ```python
-def ressources_ratio(ressources, ress_type):
-	""" select a ressource type from ressources """
-	return ressources.map(
+def resources_ratio(resources, res_type):
+	""" select a resource type from resources """
+	return resources.map(
 		lambda task: (
-			float(task[TASK][REQUEST][ress_type]),
-			float(task[TASK][USAGE][ress_type])
+			float(task[TASK][REQUEST][res_type]),
+			float(task[TASK][USAGE][res_type])
 		)
 	)
 ```
 
-Groupping over intervals of ressource requested, and computing average of each interval.
+Groupping over intervals of resource requested, and computing average of each interval.
 
 ```python
-def ressources_intervals(ressources):
+def resources_intervals(resources):
 	""" transform a list of usage over request into intervals """
-	return ressources.map(
-		lambda ress: (round(NDIVISIONS*ress[REQUEST]), ress[USAGE])
+	return resources.map(
+		lambda res: (round(NDIVISIONS*res[REQUEST]), res[USAGE])
 	).aggregateByKey(
 		# we now compute the average in each interval
 		# (sum, count)
@@ -346,20 +346,20 @@ def ressources_intervals(ressources):
 		lambda a, b: (a[0] + b[0], a[1] + b[1])
 	).map(
 		# we divide the sum by the count to have the average
-		lambda ress: (ress[REQUEST], ress[USAGE][0]/ress[USAGE][1])
+		lambda res: (res[REQUEST], res[USAGE][0]/res[USAGE][1])
 	)
 ```
 
 Plotting the average of each interval.
 
 ```python
-def ressources_plot(intervals, ress_name):
-	""" plot a graph of ressource usage over ressource requested """
+def resources_plot(intervals, res_name):
+	""" plot a graph of resource usage over resource requested """
 	plt.plot(*zip(*intervals.collect()), 'o')
 	# plt.xscale('log')
-	plt.title(f'{ress_name} used as a function of {ress_name} requested')
-	plt.ylabel(f'{ress_name} used')
-	plt.xlabel(f'{ress_name} requested')
+	plt.title(f'{res_name} used as a function of {res_name} requested')
+	plt.ylabel(f'{res_name} used')
+	plt.xlabel(f'{res_name} requested')
 	plt.show()
 ```
 
@@ -386,4 +386,4 @@ We can't see an obvious link between the Disk usage and Disk request.
 
 ##### Acknoledgment
 
-Because we were working on laptops, we had to cut a large portion of the tables. Otherwise, the computations wouldn't progress at all. As a consequence, our finding may not be representative of reality.
+Because we were working on laptops, we had to cut a large portion of the tables. Otherwise, the computations wouldn't progres at all. As a consequence, our finding may not be representative of reality.

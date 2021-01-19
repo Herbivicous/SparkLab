@@ -227,7 +227,7 @@ total_machine = nb_of_jobs_per_nb_of_machines.map(lambda e: e[0]*e[1]).reduce(ad
 # plt.show()
 
 # =======================================================
-# request more ressource = consume more ressources ?
+# request more resource = consume more resources ?
 # =======================================================
 
 tasks = sc.textFile("./data/task-events-short.csv").map(csv_split)
@@ -247,7 +247,7 @@ request = tasks.filter(
 		int(task[EVENTTYPE]) in (SUBMIT, UPDATE_RUNNING) and
 		task[CPU_REQ] and task[MEM_REQ] and task[DISK_REQ]
 ).map(
-	# we map the list into (JOBID, (ressources requests))
+	# we map the list into (JOBID, (resources requests))
 	lambda task: (
 		(int(task[JOBID]), int(task[TASKINDEX])),
 		(task[MEM_REQ], task[CPU_REQ], task[DISK_REQ])
@@ -256,7 +256,7 @@ request = tasks.filter(
 
 usage = usage.map(
 	# we map the usage table the same way as we did on the event,
-	# replacing ressources requests by ressources usages
+	# replacing resources requests by resources usages
 	lambda task: (
 		(int(task[JOBID]), int(task[TASKINDEX])),
 		(task[MAXMEM_USAGE], task[CPU_USAGE], task[DISK_USAGE])
@@ -271,21 +271,21 @@ usage_over_requested = request.join(usage)
 
 NDIVISIONS = 1000
 
-def ressources_ratio(ressources, ress_type):
-	""" select a ressource type from ressources """
-	return ressources.map(
+def resources_ratio(resources, res_type):
+	""" select a resource type from resources """
+	return resources.map(
 		lambda task: (
-			float(task[TASK][REQUEST][ress_type]),
-			float(task[TASK][USAGE][ress_type])
+			float(task[TASK][REQUEST][res_type]),
+			float(task[TASK][USAGE][res_type])
 		)
 	)
 
 # We will round the request to merge them in intervals
 
-def ressources_intervals(ressources):
+def resources_intervals(resources):
 	""" transform a list of usage over request into intervals """
-	return ressources.map(
-		lambda ress: (round(NDIVISIONS*ress[REQUEST]), ress[USAGE])
+	return resources.map(
+		lambda res: (round(NDIVISIONS*res[REQUEST]), res[USAGE])
 	).aggregateByKey(
 		# we now compute the average in each interval
 		# (sum, count)
@@ -296,27 +296,118 @@ def ressources_intervals(ressources):
 		lambda a, b: (a[0] + b[0], a[1] + b[1])
 	).map(
 		# we divide the sum by the count to have the average
-		lambda ress: (ress[REQUEST], ress[USAGE][0]/ress[USAGE][1])
+		lambda res: (res[REQUEST], res[USAGE][0]/res[USAGE][1])
 	)
 
-def ressources_plot(intervals, ress_name):
-	""" plot a graph of ressource usage over ressource requested """
+def resource_plot(intervals, res_name):
+	""" plot a graph of resource usage over resource requested """
 	plt.plot(*zip(*intervals.collect()), 'o')
 	# plt.xscale('log')
-	plt.title(f'{ress_name} used as a function of {ress_name} requested')
-	plt.ylabel(f'{ress_name} used')
-	plt.xlabel(f'{ress_name} requested')
+	plt.title(f'{res_name} used as a function of {res_name} requested')
+	plt.ylabel(f'{res_name} used')
+	plt.xlabel(f'{res_name} requested')
 	plt.show()
 
-ressources_plot(
-	ressources_intervals(ressources_ratio(usage_over_requested, MEM)),
-	'Memory'
+# resource_plot(
+# 	resources_intervals(resources_ratio(usage_over_requested, MEM)),
+# 	'Memory'
+# )
+# resource_plot(
+# 	resources_intervals(resources_ratio(usage_over_requested, CPU)),
+# 	'CPU'
+# )
+# resource_plot(
+# 	resources_intervals(resources_ratio(usage_over_requested, DISK)),
+# 	'Disk'
+# )
+
+# =======================================================
+# resource consumed ~ priority ?
+# =======================================================
+
+tasks = sc.textFile("./data/task-events.csv").map(csv_split)
+usage = sc.textFile("./data/task-usage.csv").map(csv_split)
+
+EVENTTYPE = 5
+SUBMIT, UPDATE_RUNNING = 0, 8
+
+PRORITY = 8
+MAXMEM_USAGE, DISK_USAGE, CPU_USAGE = 10, 12, 19
+JOBID, TASKINDEX = 2, 3
+
+request = tasks.filter(
+	# We filter to only keep :
+	# - submit and update running events
+	# - priority is non null
+	lambda task: 
+		int(task[EVENTTYPE]) in (SUBMIT, UPDATE_RUNNING) and task[PRORITY]
+).map(
+	# we map the list into (JOBID, (resources requests))
+	lambda task: (
+		(int(task[JOBID]), int(task[TASKINDEX])), int(task[PRORITY])
+	)
 )
-ressources_plot(
-	ressources_intervals(ressources_ratio(usage_over_requested, CPU)),
-	'CPU'
+
+usage = usage.map(
+	# we map the usage table the same way as we did on the event,
+	# replacing resources requests by resources usages
+	lambda task: (
+		(int(task[JOBID]), int(task[TASKINDEX])),
+		(task[MAXMEM_USAGE], task[CPU_USAGE], task[DISK_USAGE])
+	)
 )
-ressources_plot(
-	ressources_intervals(ressources_ratio(usage_over_requested, DISK)),
-	'Disk'
+
+usage_over_priority = request.join(usage)
+
+DATA, PRORITY, USAGE, MEM, CPU, DISK = 1, 0, 1, 0, 1, 2
+SUM, COUNT, AVERAGE = 0, 1, 1
+
+resource_averages = usage_over_priority.map(
+	lambda res: res[DATA]
+).aggregateByKey(
+	# Aggregate by priority, (sum(usage), count(usage))
+	((0, 0, 0), 0),
+	lambda acc, curr: (
+		(
+			acc[SUM][MEM] + float(curr[MEM]),
+			acc[SUM][CPU] + float(curr[CPU]),
+			acc[SUM][DISK] + float(curr[DISK]),
+		), acc[COUNT] + 1
+	),
+	lambda a, b: (
+		(
+			a[SUM][MEM] + b[SUM][MEM],
+			a[SUM][CPU] + b[SUM][CPU],
+			a[SUM][DISK] + b[SUM][DISK],
+		), a[COUNT] + b[COUNT]
+	)
+).map(
+	# compute the average sum(usage)/count(usage)
+	lambda res: (
+		res[PRORITY], (
+			res[USAGE][SUM][MEM]/res[USAGE][COUNT],
+			res[USAGE][SUM][CPU]/res[USAGE][COUNT],
+			res[USAGE][SUM][DISK]/res[USAGE][COUNT]
+		)
+	)
 )
+
+def resource_plot(intervals, res_name):
+	""" plot a graph of resource usage over resource requested """
+	plt.plot(*zip(*intervals.collect()), 'o')
+	# plt.xscale('log')
+	plt.title(f'{res_name} used as a function of priority')
+	plt.ylabel(f'{res_name} used')
+	plt.xlabel(f'Priority')
+	plt.show()
+
+print(resource_averages.take(10))
+resource_plot(resource_averages.map(
+	lambda res: (res[PRORITY], res[AVERAGE][MEM])
+), 'Memory')
+resource_plot(resource_averages.map(
+	lambda res: (res[PRORITY], res[AVERAGE][CPU])
+), 'CPU')
+resource_plot(resource_averages.map(
+	lambda res: (res[PRORITY], res[AVERAGE][DISK])
+), 'Disk')
