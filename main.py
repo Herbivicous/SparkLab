@@ -230,8 +230,8 @@ total_machine = nb_of_jobs_per_nb_of_machines.map(lambda e: e[0]*e[1]).reduce(ad
 # request more resource = consume more resources ?
 # =======================================================
 
-tasks = sc.textFile("./data/task-events-short.csv").map(csv_split)
-usage = sc.textFile("./data/task-usage-short.csv").map(csv_split)
+tasks = sc.textFile("./data/task-events.csv").map(csv_split)
+usage = sc.textFile("./data/task-usage.csv").map(csv_split)
 
 EVENTTYPE, CPU_REQ, MEM_REQ, DISK_REQ = 5, 9, 10, 11
 SUBMIT, UPDATE_RUNNING = 0, 8
@@ -401,13 +401,12 @@ def resource_plot(intervals, res_name):
 	plt.xlabel(f'Priority')
 	plt.show()
 
-print(resource_averages.take(10))
-resource_plot(resource_averages.map(
-	lambda res: (res[PRORITY], res[AVERAGE][MEM])
-), 'Memory')
-resource_plot(resource_averages.map(
-	lambda res: (res[PRORITY], res[AVERAGE][CPU])
-), 'CPU')
-resource_plot(resource_averages.map(
-	lambda res: (res[PRORITY], res[AVERAGE][DISK])
-), 'Disk')
+# resource_plot(resource_averages.map(
+# 	lambda res: (res[PRORITY], res[AVERAGE][MEM])
+# ), 'Memory')
+# resource_plot(resource_averages.map(
+# 	lambda res: (res[PRORITY], res[AVERAGE][CPU])
+# ), 'CPU')
+# resource_plot(resource_averages.map(
+# 	lambda res: (res[PRORITY], res[AVERAGE][DISK])
+# ), 'Disk')
