@@ -469,7 +469,7 @@ resource_averages = usage_over_priority.map(
 
 ##### Memory
 
-We can't see an obvious link between the Memory usage and Priority.
+Memory usage seems to be related to the priority. The higher the priority, the most amount of memory is used by the task.
 
 ![mem usage as a function of priority](figures/mem_priority.png)
 
