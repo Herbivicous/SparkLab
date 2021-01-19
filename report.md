@@ -255,4 +255,135 @@ nb_of_machine_per_job = entries.filter(
 * We can see that most of the jobs are using a few or only one machine.
 * We can see that the rest of the jobs are taking from 10 to 40 000 different machines.
 
-> Those results seem to be coherent with the *how many tasks compose a job" results.
+> Those results seem to be coherent with the **how many tasks compose a job** results.
+
+### Are the tasks that request the more resources the one that consume the more resources?
+
+#### Method
+
+The **ressource request** is in the **ask-event** table and the **ressource usage** is in the **task-usage** table.
+Task are linked by their **JobID** and by their **task index**.
+Thus, we will need to join the two table by **(JobID, task index)**.
+* First we filter the data such that we only keep **SUBMIT** and **UPDATE RUNNONG** events.
+* We also only keep events where the ressources request are defined.
+* We transform the two tables so each row is like `(JobID, task index), (mem, cpu, disk)` with `mem`, `cpu`, `disk` being either the request (task events) or the usage (task usage).
+* Then we can join the two table by **(JobID, task index)**.
+* Then for each ressource :
+	* We transform the table into a list of couple **(ress request, ress usage)**.
+	* Because we can't plot all the data (way too big), we need to find a way to reduce the number of points without losing too much information.
+	* Our solution is to group ressource usage in ressource request intervals, and then to plot the average of each interval.
+	* To do that, we change the `ressource request` by `round(NDIVISIONS*ress[REQUEST]`.
+	* We then use `aggregateByKey` to compute the average on each interval.
+	* We can finally plot the data.
+
+#### Code
+
+##### Filtering and Mapping
+
+Filtering out useless data, and mapping to `(JobID, task index), (mem, cpu, disk)`.
+
+```python
+request = tasks.filter(
+	# We filter to only keep :
+	# - submit and update running events
+	# - events where the cpu, mem, and disk request are non null
+	lambda task: 
+		int(task[EVENTTYPE]) in (SUBMIT, UPDATE_RUNNING) and
+		task[CPU_REQ] and task[MEM_REQ] and task[DISK_REQ]
+).map(
+	# we map the list into (JOBID, (ressources requests))
+	lambda task: (
+		(int(task[JOBID]), int(task[TASKINDEX])),
+		(task[MEM_REQ], task[CPU_REQ], task[DISK_REQ])
+	)
+)
+
+usage = usage.map(
+	# we map the usage table the same way as we did on the event,
+	# replacing ressources requests by ressources usages
+	lambda task: (
+		(int(task[JOBID]), int(task[TASKINDEX])),
+		(task[MAXMEM_USAGE], task[CPU_USAGE], task[DISK_USAGE])
+	)
+)
+```
+
+##### Join
+
+```python
+usage_over_requested = request.join(usage)
+```
+
+##### Ressource
+
+Mapping the data to a list of ratio of a specific ressource.
+
+```python
+def ressources_ratio(ressources, ress_type):
+	""" select a ressource type from ressources """
+	return ressources.map(
+		lambda task: (
+			float(task[TASK][REQUEST][ress_type]),
+			float(task[TASK][USAGE][ress_type])
+		)
+	)
+```
+
+Groupping over intervals of ressource requested, and computing average of each interval.
+
+```python
+def ressources_intervals(ressources):
+	""" transform a list of usage over request into intervals """
+	return ressources.map(
+		lambda ress: (round(NDIVISIONS*ress[REQUEST]), ress[USAGE])
+	).aggregateByKey(
+		# we now compute the average in each interval
+		# (sum, count)
+		(0, 0),
+		# (sum, count) = (sum + current, count + 1)
+		lambda acc, curr: (acc[0] + curr, acc[1] + 1),
+		# merge (sum, count) = (sum1 + sum2, count1 + count2)
+		lambda a, b: (a[0] + b[0], a[1] + b[1])
+	).map(
+		# we divide the sum by the count to have the average
+		lambda ress: (ress[REQUEST], ress[USAGE][0]/ress[USAGE][1])
+	)
+```
+
+Plotting the average of each interval.
+
+```python
+def ressources_plot(intervals, ress_name):
+	""" plot a graph of ressource usage over ressource requested """
+	plt.plot(*zip(*intervals.collect()), 'o')
+	# plt.xscale('log')
+	plt.title(f'{ress_name} used as a function of {ress_name} requested')
+	plt.ylabel(f'{ress_name} used')
+	plt.xlabel(f'{ress_name} requested')
+	plt.show()
+```
+
+#### Results
+
+##### Memory
+
+We can see that the more a task request memory, the more it will use memory.
+We can conclude that tasks that request the most amount of memory are the one that use the most.
+
+![mem usage as a function of mem request](figures/mem_request.png)
+
+##### CPU
+
+We can't see an obvious link between the CPU usage and CPU request.
+
+![cpu usage as a function of cpu request](figures/cpu_request.png)
+
+##### Disk
+
+We can't see an obvious link between the Disk usage and Disk request.
+
+![disk usage as a function of disk request](figures/disk_request.png)
+
+##### Acknoledgment
+
+Because we were working on laptops, we had to cut a large portion of the tables. Otherwise, the computations wouldn't progress at all. As a consequence, our finding may not be representative of reality.
