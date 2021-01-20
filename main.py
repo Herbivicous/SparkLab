@@ -412,3 +412,85 @@ def resource_plot(intervals, res_name):
 # resource_plot(resource_averages.map(
 # 	lambda res: (res[PRORITY], res[AVERAGE][DISK])
 # ), 'Disk')
+
+# =======================================================
+# peaks of resource consumption and task eviction events
+# =======================================================
+
+# Strategy: Histogram with for each eviction event the usage of
+# resources of the corresponding machine at that moment.
+
+tasks = sc.textFile("./data/task-events.csv").map(csv_split)
+usage = sc.textFile("./data/task-usage.csv").map(csv_split)
+
+EVICT = 2
+EVENT_TYPE, JOB_ID, TASK_ID, MACHINE_ID = 5, 2, 3, 4
+MAXMEM_USAGE, DISK_USAGE, CPU_USAGE = 10, 12, 19
+
+# Get all eviction events and have only the job id, task id and
+# machine id
+evictions = tasks.filter(
+        lambda task: int(task[EVENT_TYPE]) == EVICT
+).map(
+        lambda task: (
+                (int(task[JOB_ID]),int(task[TASK_ID]), int(task[MACHINE_ID])),
+                None
+        )
+)
+
+# Get the job, task and machine id, and the usages we're interested in
+usage = usage.map(
+	lambda task: (
+		(int(task[JOB_ID]), int(task[TASK_ID]), int(task[MACHINE_ID])),
+		(task[MAXMEM_USAGE], task[CPU_USAGE], task[DISK_USAGE])
+	)
+)
+
+MEM, CPU, DISK = 0, 1, 2
+SUM, COUNT = 0, 1
+
+usage_for_evictions = evictions.join(usage).map(
+        lambda x: (x[0], (x[1][1][MEM], x[1][1][CPU], x[1][1][DISK]))       
+).aggregateByKey(
+        # Aggregate by priority, (sum(usage), count(usage))
+	(0, 0, 0),
+	# Adding new task usage to the accumulator
+	lambda acc, curr: (
+		max(acc[MEM], float(curr[MEM])),
+		max(acc[CPU], float(curr[CPU])),
+		max(acc[DISK], float(curr[DISK])),
+	)
+	,
+	# Merging two accumulator together
+	lambda a, b: (
+		max(a[SUM][MEM], b[SUM][MEM]),
+		max(a[SUM][CPU], b[SUM][CPU]),
+		max(a[SUM][DISK], b[SUM][DISK]),
+	)
+        
+)
+
+mem = usage_for_evictions.map(
+        lambda usage: usage[1][MEM]
+)
+
+cpu = usage_for_evictions.map(
+        lambda usage: usage[1][CPU]
+)
+
+disk = usage_for_evictions.map(
+        lambda usage: usage[1][DISK]
+)
+
+def histogram_resource(resource, name, small_name):
+        plt.clf()
+        plt.hist(resource.collect(), 10)
+        # plt.xscale('log')
+        plt.title("{} consumption upon an eviction moment".format(name))
+        plt.ylabel(f'Number of tasks reporting this usage')
+        plt.xlabel("{} usage (normalized)".format(name))
+        plt.savefig("./figures/{}_high.png".format(small_name))
+
+histogram_resource(mem, "Memory", "mem")
+histogram_resource(cpu, "CPU", "cpu")
+histogram_resource(disk, "Disk", "disk")

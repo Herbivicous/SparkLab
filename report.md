@@ -486,3 +486,109 @@ We can't see an obvious link between the CPU usage and Priority.
 We can't see an obvious link between the Disk usage and Priority.
 
 ![disk usage as a function of priority](figures/disk_priority.png)
+
+### Can we observe correlations between peaks of high resource consumption on some machines and eviction events?
+
+#### Method
+
+The method to get the result is as follows: we get all the eviction
+events by job, task and machine ID, and get all the usage data that is
+linked to an eviction event. Then, we get the maximum usage for the
+memory, CPU and disk, and aggregate the data into an histogram to get
+the number of evictions event per usage on a given machine.
+
+The goal is to see if the number of evictions correlate with a
+higher-than-normal resource usage on the machines.
+
+#### Code
+
+##### Getting the eviction events and usages
+
+```python
+# Get all eviction events and have only the job id, task id and
+# machine id
+evictions = tasks.filter(
+        lambda task: int(task[EVENT_TYPE]) == EVICT
+).map(
+        lambda task: (
+                (int(task[JOB_ID]),int(task[TASK_ID]), int(task[MACHINE_ID])),
+                None
+        )
+)
+
+# Get the job, task and machine id, and the usages we're interested in
+usage = usage.map(
+	lambda task: (
+		(int(task[JOB_ID]), int(task[TASK_ID]), int(task[MACHINE_ID])),
+		(task[MAXMEM_USAGE], task[CPU_USAGE], task[DISK_USAGE])
+	)
+)
+```
+
+##### Getting the maximum peaks for each event
+
+We first join the usage on the evictions by their job, task and
+machine ID, so that each usage metric we get is tied to an eviction
+event. Then, we aggregate the results by key, by taking the maximum
+usage recorded for that particular event (taking the average would
+hide a potential peak of consumption that would have triggered the
+eviction).
+
+```python
+usage_for_evictions = evictions.join(usage).map(
+        lambda x: (x[0], (x[1][1][MEM], x[1][1][CPU], x[1][1][DISK]))       
+).aggregateByKey(
+        # Aggregate by priority, (sum(usage), count(usage))
+	(0, 0, 0),
+	# Adding new task usage to the accumulator
+	lambda acc, curr: (
+		max(acc[MEM], float(curr[MEM])),
+		max(acc[CPU], float(curr[CPU])),
+		max(acc[DISK], float(curr[DISK])),
+	)
+	,
+	# Merging two accumulator together
+	lambda a, b: (
+		max(a[SUM][MEM], b[SUM][MEM]),
+		max(a[SUM][CPU], b[SUM][CPU]),
+		max(a[SUM][DISK], b[SUM][DISK]),
+	)
+        
+)
+```
+
+##### Getting the histograms
+
+After getting the data, we then compute the histogram for each metric:
+CPU, memory and disk.
+
+
+### Results
+
+The results we get here are partial: the usage metric we get is for
+the corresponding task, not taking into account the other tasks
+present on the machine at the time of the eviction. It could very well
+be that the tasks are getting evicted because another task, with a
+higher priority, needs more resources.
+
+#### Memory
+
+It doesn't look like high memory consumption is a significant trigger
+of eviction events: the quasi-totaly of eviction events happen when
+the maximum memory usage doesn't go higher than 4%.
+
+![Eviction event count for different memory usages](figures/memory_high.png)
+
+#### CPU
+
+The CPU usage graph shows a slightly high propention of evictions when
+the usage is high. This could mean that there is a correlation between
+the CPU consumption and the eviction of tasks.
+
+![Eviction event count for different CPU usages](figures/cpu_high.png)
+
+#### Disk
+
+There is clearly no correlation between disk usage and evictions.
+
+![Eviction event count for different disk usages](figures/disk_high.png)
