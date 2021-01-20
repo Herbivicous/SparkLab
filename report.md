@@ -577,7 +577,7 @@ It doesn't look like high memory consumption is a significant trigger
 of eviction events: the quasi-totaly of eviction events happen when
 the maximum memory usage doesn't go higher than 4%.
 
-![Eviction event count for different memory usages](figures/memory_high.png)
+![Eviction event count for different memory usages](figures/mem_high.png)
 
 #### CPU
 
